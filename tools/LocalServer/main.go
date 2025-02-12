@@ -176,7 +176,7 @@ func handlePlot(w http.ResponseWriter, r *http.Request) {
 	latestTempUnit := latestRow[4] // Temperature unit (C or F)
 
 	// **Step 2: Extract and convert data**
-	var timestamps, temperatures, gravities []string
+	var timestamps, temperatures, gravities, batteryVoltages []string
 	var lastRowData []string
 
 	for i, row := range rows[1:] { // Skip header row
@@ -186,6 +186,7 @@ func handlePlot(w http.ResponseWriter, r *http.Request) {
 
 		timestamps = append(timestamps, row[0]) // Timestamp
 		gravities = append(gravities, row[1])   // Gravity
+		batteryVoltages = append(batteryVoltages, row[5])
 
 		// Convert temperature
 		tempValue, err := strconv.ParseFloat(row[3], 64)
@@ -293,27 +294,55 @@ func handlePlot(w http.ResponseWriter, r *http.Request) {
 				localStorage.setItem('refreshInterval', newInterval); // Save choice
 				setRefreshTimer(newInterval); // Apply new interval
 			});
-			var trace1 = {
+			var sgTrace = {
+				x: {{.Timestamps}},
+				y: {{.Gravities}},
+				name: 'Specific Gravity',
+				mode: 'lines+markers',
+				line: {color: '#1076eb'},
+                yaxis: 'y1'
+			};
+			var tempTrace = {
 				x: {{.Timestamps}},
 				y: {{.Temperatures}},
 				mode: 'lines+markers',
 				name: '{{.TempTraceName}}',
-				line: {color: 'red'}
+				line: {color: '#e66596'},
+                yaxis: 'y2'
 			};
-			var trace2 = {
+			var batteryTrace = {
 				x: {{.Timestamps}},
-				y: {{.Gravities}},
+				y: {{.Voltages}},
+				name: 'Battery Voltage',
+				yaxis: 'y3', // Attach to a third y-axis
 				mode: 'lines+markers',
-				name: 'Gravity',
-				line: {color: 'blue'}
+				line: { color: 'lightseagreen' },
+                visible: 'legendonly'
 			};
 			var layout = {
-				title: 'Temperature and Gravity Over Time',
+				title: 'Gravity and Temperature Over Time',
 				xaxis: {title: 'Timestamp'},
-				yaxis: {title: 'Values'},
-				legend: {x: 1, y: 1}
+                yaxis: {
+                    title: 'Specific Gravity',
+                    side: 'right'
+                },
+                yaxis2: {
+                    title: '{{.TempTraceName}}',
+                    overlaying: 'y',
+                    side: 'left',
+                    showgrid: false
+                },
+				yaxis3: {
+					title: 'Battery Voltage',
+					overlaying: 'y', // Overlay on the same graph
+					side: 'left',
+                    showgrid: false,
+					position: 0.04, // Slightly offset to distinguish it
+					range: [2.8, 4.3]
+        		},
+				legend: {x: 0.5, y: 1.15, orientation: 'h', xanchcor: 'center'}
 			};
-			Plotly.newPlot('plot', [trace1, trace2], layout);
+			Plotly.newPlot('plot', [sgTrace, tempTrace, batteryTrace], layout);
 		</script>
 	</body>
 	</html>
@@ -331,6 +360,7 @@ func handlePlot(w http.ResponseWriter, r *http.Request) {
 		"Timestamps":    timestamps,
 		"Temperatures":  temperatures,
 		"Gravities":     gravities,
+		"Voltages": 		 batteryVoltages,
 		"TempTraceName": tempTraceName,
 		"LastRow":       lastRowData,
 	})
@@ -449,8 +479,10 @@ func createOrAppendCSV(json map[string]interface{}) error {
 			// Convert specific fields to integers
 			if key == "ID" || key == "interval" || key == "RSSI" {
 				row = append(row, fmt.Sprintf("%d", int(v))) // Explicitly cast float64 to int
-			} else {
-				row = append(row, fmt.Sprintf("%.3f", v)) // Keeps float format for non-integer fields
+			} else if key == "temperature" {
+				row = append(row, fmt.Sprintf("%.2f", v)) // Keeps float format for non-integer fields
+            } else {
+				row = append(row, fmt.Sprintf("%.4f", v)) // Keeps float format for non-integer fields
 			}
 		default:
 			row = append(row, fmt.Sprintf("%v", v)) // Generic fallback
